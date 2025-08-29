@@ -75,7 +75,7 @@ def health_check():
 def get_current_user_id():
     """get the currently logged in user"""
     # TODO: get current user id from auth
-    return "1"
+    return "buGQNlKrLxE5S9BDH91Ccg9EORZnQFtjrK4n6jizGq20YozRbT"
 
 
 def get_chat_history(user_id):
