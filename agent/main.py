@@ -8,8 +8,6 @@ from strands import Agent
 from strands_tools import retrieve
 from botocore.config import Config
 from bedrock_agentcore.memory import MemoryClient
-
-
 from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
 from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
 
@@ -19,6 +17,7 @@ logging.getLogger("strands").setLevel(logging.DEBUG)
 
 # Sets the logging format and streams logs to stderr
 logging.basicConfig(
+    level=logging.INFO,
     format="%(levelname)s | %(name)s | %(message)s",
     handlers=[logging.StreamHandler()]
 )
@@ -46,7 +45,8 @@ retry_config = Config(
 
 memory_client = MemoryClient(region_name=region)
 
-app = FastAPI(title="AI Chat Accelerator Agent", version="1.0.0")
+app = FastAPI(title="AI Agent Accelerator", version="0.1.0")
+
 
 system_prompt = """
 Your name as the AI is "AI Chatbot" and you have been created by AnyCompany as an expert in their business.
@@ -66,30 +66,20 @@ class InvocationResponse(BaseModel):
 @app.post("/invocations", response_model=InvocationResponse)
 async def invoke_agent(request: Request):
     global strands_agent
-    try:
-        # validate input
-        req = await request.json()
-        invoke_input = req["input"]
-        prompt = invoke_input["prompt"]
-        if not prompt:
-            raise HTTPException(
-                status_code=400,
-                detail="No prompt found in input. Please provide a 'prompt' key in the input."
-            )
-        user_id = invoke_input["user_id"]
-        if not user_id:
-            raise HTTPException(
-                status_code=400,
-                detail="No user_id found in input. Please provide a 'user_id' key in the input."
-            )
-        session_id = request.headers.get(
-            "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id")
-        if not session_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing header X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
-            )
+    result = None
 
+    # validate input
+    req = await request.json()
+    invoke_input = req["input"]
+    prompt = invoke_input["prompt"]
+    user_id = invoke_input["user_id"]
+    logging.info(f"user_id = {user_id}")
+    session_id = request.headers.get(
+        "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id")
+
+    if not all([prompt, user_id, session_id]):
+        error_msg = ""
+        if not prompt:
             error_msg = "No prompt found in input. Please provide a 'prompt' key in the input."
         elif not user_id:
             error_msg = "No user_id found in input. Please provide a 'user_id' key in the input."
@@ -143,6 +133,16 @@ async def invoke_agent(request: Request):
         logging.error(f"Agent processing failed: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Agent processing failed: {str(e)}")
+
+
+class NoHealthCheckFilter(logging.Filter):
+    """disable health check logging"""
+
+    def filter(self, record):
+        return "GET /ping" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(NoHealthCheckFilter())
 
 
 @app.get("/ping")
