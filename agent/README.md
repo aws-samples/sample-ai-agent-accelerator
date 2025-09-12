@@ -27,7 +27,7 @@ make install
 Deploy agent to AWS. You can run this multiple times after making code changes.
 
 ```sh
-make deploy app=my_agent kb=${KB_ID}
+make deploy app=my_agent kb=${KNOWLEDGE_BASE_ID}
 ```
 
 Test endpoint with test client.

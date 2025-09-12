@@ -10,8 +10,8 @@ services:
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
 
   app:
-    container_name: ai-chat-accelerator
-    image: ai-chat-accelerator
+    container_name: ai-agent-accelerator
+    image: ai-agent-accelerator
     build: .
     platform: linux/amd64
     environment:
@@ -22,12 +22,12 @@ services:
       AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
       POSTGRES_HOST: postgres
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel:4317
-      OTEL_RESOURCE_ATTRIBUTES: service.namespace=ai-chatbot.local,service.name=orchestrator
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=agent.local,service.name=web
       TZ: America/New_York
       LC_ALL: en_US.UTF-8
     env_file: .env
     ports:
-      - "8080:8080"
+      - "3000:8080"
     read_only: true
     security_opt:
       - no-new-privileges:true

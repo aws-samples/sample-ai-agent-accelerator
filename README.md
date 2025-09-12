@@ -105,9 +105,9 @@ docker buildx inspect --bootstrap
 Run the agent deploy script. Note the reason for this is that support for AgentCore has not yet been added to IaC tools. Ensure that you have boto3 installed and accessible in this directory (`make init && make install`).
 
 ```sh
-export KB_ID=$(terraform output -raw bedrock_knowledge_base_id)
+export KNOWLEDGE_BASE_ID=$(terraform output -raw bedrock_knowledge_base_id)
 cd ../agent
-make deploy app=${APP_NAME} kb=${KB_ID}
+make deploy app=${APP_NAME} kb=${KNOWLEDGE_BASE_ID}
 ```
 
 You should see output like this:
