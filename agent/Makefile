@@ -1,4 +1,4 @@
-app := agentcore_helloworld
+app := agent
 
 all: help
 
@@ -46,29 +46,27 @@ start:
 ## run: run uvicorn app
 .PHONY: run
 run:
-	KNOWLEDGE_BASE_ID=${kb_id} uv run uvicorn main:app --host 0.0.0.0 --port 8080
-
-## test: test the invocations endpoint
-.PHONY: test
-test:
-	curl -X POST http://localhost:8080/invocations -H "Content-Type: application/json" -d '{ "input": {"prompt": "What is artificial intelligence?"} }'
+	uv run uvicorn main:app --host 0.0.0.0 --port 8080
 
 ## build: build container image
 .PHONY: build
 build:
-	docker buildx build --platform linux/arm64 -t $(app):arm64 --load .
+	docker compose build
 
-## docker-run: run container image
-.PHONY: docker-run
-docker-run: build
-	docker run --platform linux/arm64 -p 8080:8080 \
-		-e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
-		-e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-		-e AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
-		-e AWS_REGION="${AWS_REGION}" \
-		-e APP_NAME="${app}" \
-		-e KNOWLEDGE_BASE_ID="${kb_id}" \
-		$(app):arm64
+## up: docker compose up
+.PHONY: up
+up: build
+	docker compose up -d && docker compose logs -f
+
+## down: docker compose down
+.PHONY: down
+down:
+	docker compose down
+
+## test: test the invocations endpoint
+.PHONY: test
+test:
+	curl -X POST http://localhost:8080/invocations -H "Content-Type: application/json" -H "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id: ${SESSION_ID}" -d '{ "input": {"user_id": "${USER_ID}", "prompt": "What tools do you have access to?"} }'
 
 ## deploy: deploy the agentcore agent (make deploy app=my-app)
 .PHONY: deploy

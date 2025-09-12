@@ -3,12 +3,10 @@ import json
 import logging
 import log
 import boto3
+from config import Config
+from chat_message import ChatMessage
 
 runtime = boto3.client("bedrock-agentcore")
-
-agent_runtime_arn = os.getenv("AGENT_RUNTIME")
-if agent_runtime_arn == "":
-    raise Exception("AGENT_RUNTIME is required")
 
 
 def orchestrate(conversation_history, new_question):
@@ -25,7 +23,7 @@ def orchestrate(conversation_history, new_question):
     payload = json.dumps(payload_data)
 
     request = {
-        "agentRuntimeArn": agent_runtime_arn,
+        "agentRuntimeArn": Config.AGENT_RUNTIME,
         "payload": payload,
         "runtimeUserId": conversation_history["userId"],
         "runtimeSessionId": conversation_history["conversationId"],
@@ -44,9 +42,7 @@ def orchestrate(conversation_history, new_question):
 
     # The response body is a StreamingBody object
     response_body = response["response"].read().decode("utf-8")
-    response = json.loads(response_body)
-    logging.info(response)
-    output = response["output"]["message"]["content"][0]["text"]
-    sources = []
+    logging.info(f"Response Body: {response_body}")
 
-    return output, sources
+    msg = ChatMessage.from_json(response_body)
+    return msg.get_text_content(), []

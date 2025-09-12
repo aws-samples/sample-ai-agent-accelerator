@@ -1,20 +1,14 @@
 # ai-agent-accelerator
 
-Get up and running quickly with an AI agent application on AWS using Bedrock AgentCore.
+Get up and running quickly with an AI agent application on AWS on Bedrock AgentCore.
 
-This project is a sample reference implementation that showcases how to quickly build an AI agent using the Bedrock AgentCore service building blocks. The implementation is fully serverless leveraging AgentCore Runtime, AgentCore Memory, AgentCore Observability, and Amazon S3 Vectors for Agentic RAG, eliminating the need to run databases.
+A sample reference implementation that showcases how to quickly build an AI agent using the AWS AgentCore service building blocks. The implementation is fully serverless leveraging AgentCore Memory and Amazon S3 Vectors for Agentic RAG, which means there are no databases to manager or think about.
 
-The agent is built using the [Strands Agent](https://strandsagents.com) Python library and hosted on the [AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agents-tools-runtime.html). It uses Strand's built-in `retrieve` tool to perform semantic search using [Bedrock Knowledge Bases](https://aws.amazon.com/bedrock/knowledge-bases/), which ingests documents from an [S3 bucket](https://aws.amazon.com/s3/) and stores the indexed vectors in [S3 Vectors](https://aws.amazon.com/s3/features/vectors/). User conversation state and history are fully managed by [AgentCore Memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-getting-started.html). Users interact with the agent via a web app that provides both a web GUI and an HTTP JSON API, hosted as a container on [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) behind an [ALB](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/). The web app is built using [Python Flask](https://flask.palletsprojects.com) and [HTMX](https://htmx.org/).
-
-This implementation evolved from the [AI Chat Accelerator implementation](https://github.com/aws-samples/ai-chat-accelerator) which was developed over a year ago and implemented traditional RAG.
-
-*Note that at the time of this release (Aug 2025), the Bedrock AgentCore services are in preview.
-
-![ui](./ui.png)
-
-## Architecture
+The agent is built using the [Strands Agent](https://strandsagents.com) Python library and hosted on the [AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agents-tools-runtime.html). The agent has a `retrieve` tool can do semantic search using [Bedrock Knowledge Bases](https://aws.amazon.com/bedrock/knowledge-bases/) which ingests documents from an [S3 bucket](https://aws.amazon.com/s3/) and stores the indexed vectors in [S3 Vectors](https://aws.amazon.com/s3/features/vectors/). User conversation state and history is fully managed by [AgentCore Memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-getting-started.html). Users interact with the agent via a web app (which exposes both a web GUI as well as an HTTP JSON API) and is hosted as a container running on [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) fronted with an [ALB](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/). The web app is built using [Python Flask](https://flask.palletsprojects.com) and [HTMX](https://htmx.org/).
 
 ![architecture](./architecture.png)
+
+This implementation is an evolution of the [AI Chat Accelerator implementation](https://github.com/aws-samples/ai-chat-accelerator) which implemented traditional RAG.
 
 ## Key Features
 
@@ -22,7 +16,7 @@ This implementation evolved from the [AI Chat Accelerator implementation](https:
 - Ask questions and get answers
 - Implements Agentic RAG
 - Easily add additional tools for the agent to use
-- See conversation history and select to see past conversations
+- See conversation history and select to see past converations
 - Built-in auto scaling architecture (see docs below)
 - End to end observability with AgentCore GenAI observability and OpenTelemetry (OTEL)
 
@@ -47,6 +41,34 @@ Follow the 6 step process below for deploying this solution into your AWS accoun
 - [Python 3](https://www.python.org/downloads/)
 - [boto3](https://boto3.amazonaws.com/) (latest)
 
+
+#### Python environment
+
+Python 3 is required to be setup on your machine to deploy to AgentCore Runtime. It's also required if you want to make code changes. To run the [./agent/deploy.py](./agent/deploy.py) script, the only dependency is the `boto3` package.
+
+To do development (i.e. make code changes), `python 3.10+` is required (the containers use python `3.13`). Once you have python installed, you can run the convenient [make commands](./Makefile) to setup a virtual environment and install the required packages.
+
+```sh
+make init
+make install
+```
+
+If you have [direnv](https://direnv.net/) installed, it will automatically activate the virtual environment when you change into the directory (after you allow it using `direnv allow .`).
+
+If you don't want to use these commands, you can set up python by running the following in the project directory:
+
+```sh
+# create/activate python virtual environment
+python -m venv .venv
+source .venv/bin/activate
+
+# install python dependencies
+pip install -r piplock.txt
+```
+
+Note that the [agent](./agent/) directory has a separate python virtual environment for agent development, so you can run the above commands there as well if you're modifying agent code.
+
+
 ### 2. Deploy cloud infrastructure
 
 Export required environment variables.
@@ -63,7 +85,7 @@ Optionally, create an s3 bucket to store terraform state (this is recommended si
 aws s3 mb s3://${BUCKET}
 ```
 
-Define your app name (note: avoid `_`s and `-`s, as AgentCore does not allow dashes for some reason):
+Define your app name (noteL avoid `_`s and `-`s, as AgentCore does not allow dashes for some reason `-`):
 
 ```sh
 export APP_NAME=agent
@@ -94,7 +116,7 @@ Now that the infrastructure has been deployed, you can build the agent and app c
 
 #### Deploy the Agent to the AgentCore Runtime
 
-*Important - if you're running this on an `amd64` machine, you'll need to run the following commands since AgentCore requires building of `arm64` images.
+*Important - if you're running this on an `amd64` machine, you'll to run the following commands since AgentCore requires building of `arm64` images.
 
 ```sh
 # Create a new builder instance and bootstrap it
@@ -102,12 +124,12 @@ docker buildx create --name multiarch --driver docker-container --use
 docker buildx inspect --bootstrap
 ```
 
-Run the agent deploy script. Note the reason for this is that support for AgentCore has not yet been added to IaC tools. Ensure that you have boto3 installed and accessible in this directory (`make init && make install`).
+Run the agent deploy script which requires python and boto3 (note that support for AgentCore has not yet been added to IaC tools).
 
 ```sh
-export KB_ID=$(terraform output -raw bedrock_knowledge_base_id)
+export KNOWLEDGE_BASE_ID=$(terraform output -raw bedrock_knowledge_base_id)
 cd ../agent
-make deploy app=${APP_NAME} kb=${KB_ID}
+make deploy app=${APP_NAME} kb=${KNOWLEDGE_BASE_ID}
 ```
 
 You should see output like this:
@@ -152,7 +174,7 @@ cd ..
 make baseimage && make deploy app=${APP_NAME}
 ```
 
-After the initial deployment, you can iterate on code changes faster by only rebuilding the code layers and re-deploying.
+After the intitial deployment, you can iterate on code changes faster by only rebuilding the code layers and re-deploying.
 
 ```sh
 make deploy app=${APP_NAME}
@@ -203,13 +225,13 @@ Bedrock cross-region model inference is recommended for increasing throughput us
 
 ## Observability
 
-This accelerator ships with OpenTelemetry auto instrumented code for flask, boto3, and AgentCore via the [aws-opentelemetry-distro](https://pypi.org/project/opentelemetry-distro/) library. It will create traces that are available in CloudWatch GenAI Observability. These traces can be useful for understanding how the AI agent is running in AWS. You can see how an HTTP request is broken down in terms of how much time is spent on various external calls all the way through Bedrock AgentCore Runtime through the Strands framework, to LLM calls.
+This accelerator ships with OpenTelemetry auto instrumented code for flask, boto3, and AgentCore via the [aws-opentelemetry-distro](https://pypi.org/project/opentelemetry-distro/) library. It will create traces that are available in CloudWatch GenAI Observability. These traces can be useful for understanding how the AI agent is running in production. You can see how an HTTP request is broken down in terms of how much time is spent on various external calls all the way through Bedrock AgentCore Runtime through the Strands framework, to LLM calls.
 
-![Tracing](./tracing.png)
+![Tracing](./tracing.jpg)
 
 ### Disabling tracing
 
-If you'd like to disable the tracing to AWS X-Ray, you can remove the OTEL sidecar container and dependencies from the ECS task definition as shown below.
+If you'd like to disable the tracing to AWS X-Ray, you can remove the otel sidecar container and dependencies from the ECS task definition as show below.
 
 ```
       dependsOn = [
@@ -232,6 +254,7 @@ If you'd like to disable the tracing to AWS X-Ray, you can remove the OTEL sidec
     },
 ```
 
+
 ## Development
 
 ```
@@ -249,10 +272,12 @@ If you'd like to disable the tracing to AWS X-Ray, you can remove the OTEL sidec
 
 ### Running locally
 
-In order to run the app locally, create a local file named `.env` with the following variables. The variable, `KNOWLEDGE_BASE_ID` comes from the Terraform output (`cd iac && terraform output`).
+In order to run the app locally, create a local file named `.env` with the following variables. The variable, `KNOWLEDGE_BASE_ID` comes from the Terraform output (`cd iac && terraform output`). The others are exported above duing deployment and can be copied here.
 
 ```sh
-KNOWLEDGE_BASE_ID=
+KNOWLEDGE_BASE_ID=xyz
+AGENT_RUNTIME=xyz
+MEMORY_ID=xyz
 ```
 
 After setting up your `.env` file, you can run the app locally in docker to iterate on code changes before deploying to AWS. When running the app locally it uses the remote Amazon Bedrock Knowledge Base API. Ensure that you have valid AWS credentials. Running the `make up` command will start an OTEL collector and a web server container.

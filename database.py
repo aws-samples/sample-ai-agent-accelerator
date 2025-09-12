@@ -1,14 +1,13 @@
 import os
 import log
-import uuid
 import logging
-import json
-import psycopg
 import boto3
 from bedrock_agentcore.memory import MemoryClient
+from config import Config
+from chat_message import ChatMessage
 
-memory_client = MemoryClient(region_name=os.getenv("AWS_REGION"))
-memory_id = os.getenv("MEMORY_ID")
+memory_client = MemoryClient(region_name=Config.AWS_REGION)
+memory_id = Config.MEMORY_ID
 memory_data_client = boto3.client("bedrock-agentcore")
 
 
@@ -37,6 +36,15 @@ class Database():
                         role = conv.get('role')
                         content = conv.get('content', {}).get('text', '')
 
+                        # content is json encoded in memory
+                        msg = ChatMessage.from_json(content)
+
+                        # Skip tool related messages as they're intermediate
+                        if msg.is_tool_message():
+                            continue
+
+                        content_text = msg.get_text_content()
+
                         if role == 'USER':
                             # If we have a complete Q&A pair, save it
                             if current_question and current_answer:
@@ -44,15 +52,14 @@ class Database():
                                     "q": current_question,
                                     "a": current_answer
                                 })
+
                             # Start new question
-                            current_question = content
+                            current_question = content_text
                             current_answer = None
 
                         elif role == 'ASSISTANT':
                             # Set the answer for current question
-                            current_answer = content
-
-                        # Skip TOOL role messages as they're intermediate
+                            current_answer = content_text
 
         # Add the last Q&A pair if it exists
         if current_question and current_answer:
@@ -90,7 +97,7 @@ class Database():
 
         for session in response["sessionSummaries"]:
             session_id = session['sessionId']
-            # logging.info(f"Processing session: {session_id}")
+            logging.info(f"Processing session: {session_id}")
 
             events_response = memory_data_client.list_events(
                 memoryId=memory_id,
@@ -100,7 +107,7 @@ class Database():
                 maxResults=100,
             )
             events = events_response.get('events', [])
-            # logging.info(f"Session {session_id} has {len(events)} events")
+            logging.info(f"Session {session_id} has {len(events)} events")
 
             if events:
                 # Sort events by eventTimestamp (convert to datetime for proper sorting)
@@ -142,6 +149,11 @@ class Database():
                     content = payload['conversational'].get('content', {})
                     if 'text' in content:
                         initial_question = content['text']
+
+                        # memory stores the raw message json
+                        # parse the text
+                        msg = ChatMessage.from_json(initial_question)
+                        initial_question = msg.get_text_content()
 
             # Format timestamp as M/D/YY H:MM AM/PM
             created_dt = session_data['latest_timestamp']
