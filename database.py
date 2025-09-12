@@ -1,13 +1,13 @@
 import os
 import log
 import logging
-import json
 import boto3
 from bedrock_agentcore.memory import MemoryClient
+from config import Config
 from chat_message import ChatMessage
 
-memory_client = MemoryClient(region_name=os.getenv("AWS_REGION"))
-memory_id = os.getenv("MEMORY_ID")
+memory_client = MemoryClient(region_name=Config.AWS_REGION)
+memory_id = Config.MEMORY_ID
 memory_data_client = boto3.client("bedrock-agentcore")
 
 
