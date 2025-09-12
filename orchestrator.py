@@ -3,6 +3,7 @@ import json
 import logging
 import log
 import boto3
+from chat_message import ChatMessage
 
 runtime = boto3.client("bedrock-agentcore")
 
@@ -44,9 +45,7 @@ def orchestrate(conversation_history, new_question):
 
     # The response body is a StreamingBody object
     response_body = response["response"].read().decode("utf-8")
-    response = json.loads(response_body)
-    logging.info(response)
-    output = response["output"]["message"]["content"][0]["text"]
-    sources = []
+    logging.info(f"Response Body: {response_body}")
 
-    return output, sources
+    msg = ChatMessage.from_json(response_body)
+    return msg.get_text_content(), []
