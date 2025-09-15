@@ -6,6 +6,10 @@ A sample reference implementation that showcases how to quickly build an AI agen
 
 The agent is built using the [Strands Agent](https://strandsagents.com) Python library and hosted on the [AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agents-tools-runtime.html). The agent has a `retrieve` tool can do semantic search using [Bedrock Knowledge Bases](https://aws.amazon.com/bedrock/knowledge-bases/) which ingests documents from an [S3 bucket](https://aws.amazon.com/s3/) and stores the indexed vectors in [S3 Vectors](https://aws.amazon.com/s3/features/vectors/). User conversation state and history is fully managed by [AgentCore Memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-getting-started.html). Users interact with the agent via a web app (which exposes both a web GUI as well as an HTTP JSON API) and is hosted as a container running on [ECS Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) fronted with an [ALB](https://aws.amazon.com/elasticloadbalancing/application-load-balancer/). The web app is built using [Python Flask](https://flask.palletsprojects.com) and [HTMX](https://htmx.org/).
 
+![ui](./ui.png)
+
+## Architecture
+
 ![architecture](./architecture.png)
 
 This implementation is an evolution of the [AI Chat Accelerator implementation](https://github.com/aws-samples/ai-chat-accelerator) which implemented traditional RAG.
