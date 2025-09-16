@@ -2,8 +2,9 @@ import logging
 import log
 import sys
 import signal
+import os
 from datetime import datetime, timezone
-from flask import Flask, request, render_template, abort
+from flask import Flask, request, render_template, abort, redirect, url_for
 from markupsafe import Markup
 import mistune
 import uuid
@@ -26,6 +27,7 @@ def signal_handler(signal, frame):
 
 signal.signal(signal.SIGTERM, signal_handler)
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Setup OpenTelemetry
 tracer_provider = TracerProvider()
@@ -54,6 +56,9 @@ def after_request(response):
 # initialize database client
 db = database.Database()
 
+# Check if authentication is enabled
+auth_enabled = os.environ.get('ENABLE_AUTHENTICATION', 'false').lower() == 'true'
+
 
 @app.template_filter('markdown')
 def render_markdown(text):
@@ -73,9 +78,61 @@ def health_check():
 
 
 def get_current_user_id():
-    """get the currently logged in user"""
-    # TODO: get current user id from auth
-    return "user-1"
+    """get the currently logged in user from Cognito headers or fallback for non-authenticated mode"""
+    import base64
+    import json
+    
+    if auth_enabled:
+        # ALB forwards Cognito user info in headers
+        email = request.headers.get('x-amzn-oidc-data')
+        if email:
+            # Decode the JWT payload (middle part)
+            try:
+                payload = email.split('.')[1]
+                # Add padding if needed
+                payload += '=' * (4 - len(payload) % 4)
+                decoded = base64.b64decode(payload)
+                user_data = json.loads(decoded)
+                email_address = user_data.get('email', 'unknown-user')
+                # Encode email with base64 to comply with actorId pattern [a-zA-Z0-9][a-zA-Z0-9-_/]*
+                return base64.b64encode(email_address.encode()).decode().rstrip('=')
+            except Exception as e:
+                logging.warning(f"Failed to decode user data: {e}")
+        
+        # Fallback for development/testing - also encode to maintain consistency
+        fallback_user = request.headers.get('x-amzn-oidc-identity', 'user-1')
+        return base64.b64encode(fallback_user.encode()).decode().rstrip('=')
+    else:
+        # Non-authenticated mode - use a default user
+        default_user = 'anonymous-user'
+        return base64.b64encode(default_user.encode()).decode().rstrip('=')
+
+
+def get_current_user_email():
+    """get the currently logged in user's email for display"""
+    import base64
+    import json
+    
+    if auth_enabled:
+        # ALB forwards Cognito user info in headers
+        email = request.headers.get('x-amzn-oidc-data')
+        if email:
+            # Decode the JWT payload (middle part)
+            try:
+                payload = email.split('.')[1]
+                # Add padding if needed
+                payload += '=' * (4 - len(payload) % 4)
+                decoded = base64.b64decode(payload)
+                user_data = json.loads(decoded)
+                return user_data.get('email', 'Unknown User')
+            except Exception as e:
+                logging.warning(f"Failed to decode user data: {e}")
+        
+        # Fallback for development/testing
+        return request.headers.get('x-amzn-oidc-identity', 'Test User')
+    else:
+        # Non-authenticated mode
+        return 'Anonymous User'
 
 
 def get_chat_history(user_id):
@@ -91,7 +148,38 @@ def get_chat_history(user_id):
 @app.route("/")
 def index():
     """home page"""
-    return render_template("index.html", conversation={})
+    user_email = get_current_user_email() if auth_enabled else None
+    return render_template("index.html", conversation={}, user_email=user_email, auth_enabled=auth_enabled)
+
+
+@app.route("/logout")
+def logout():
+    """logout route - expires ALB auth cookies and redirects to Cognito logout"""
+    if not auth_enabled:
+        return redirect(url_for('index'))
+    
+    # Get Cognito logout URL
+    cognito_logout_url = os.environ.get('COGNITO_LOGOUT_URL')
+    if not cognito_logout_url:
+        return redirect('/')
+    
+    # Create response that redirects to Cognito logout
+    response = redirect(cognito_logout_url)
+    
+    # Expire ALB authentication session cookies
+    # ALB can create up to 4 cookie shards (AWSELBAuthSessionCookie-0 to AWSELBAuthSessionCookie-3)
+    for i in range(4):
+        cookie_name = f"AWSELBAuthSessionCookie-{i}"
+        response.set_cookie(
+            cookie_name,
+            value='',
+            expires=0,  # Expire immediately
+            path='/',
+            secure=True,
+            httponly=True
+        )
+    
+    return response
 
 
 @app.route("/new", methods=["POST"])
@@ -104,7 +192,8 @@ def new():
 def conversations():
     """GET /conversations returns just the conversation history"""
     user_id = get_current_user_id()
-    return render_template("conversations.html", chat_history=get_chat_history(user_id))
+    user_email = get_current_user_email() if auth_enabled else None
+    return render_template("conversations.html", chat_history=get_chat_history(user_id), user_email=user_email, auth_enabled=auth_enabled)
 
 
 @app.route("/ask", methods=["POST"])
@@ -222,6 +311,8 @@ def ask_api_new():
         abort(400, m)
     question = body["question"]
 
+    user_id = get_current_user_id()
+    
     conversation = {
         "conversationId": str(uuid.uuid4()),
         "userId": user_id,

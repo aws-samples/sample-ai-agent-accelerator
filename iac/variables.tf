@@ -50,3 +50,44 @@ variable "agentcore_memory_id" {
   type        = string
   default     = ""
 }
+
+variable "allowed_ips" {
+  description = "List of IP addresses/CIDR blocks allowed to access the web interface"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "acm_certificate_arn" {
+  description = "ARN of the ACM certificate for HTTPS listener"
+  type        = string
+  default     = ""
+}
+
+variable "alb_access_logs_enabled" {
+  description = "Enable ALB access logs"
+  type        = bool
+  default     = false
+}
+
+variable "alb_connection_logs_enabled" {
+  description = "Enable ALB connection logs"
+  type        = bool
+  default     = false
+}
+
+variable "enable_authentication" {
+  description = "Enable ALB+Cognito authentication"
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.enable_authentication || var.acm_certificate_arn != ""
+    error_message = "SSL/TLS certificate (acm_certificate_arn) is required when authentication is enabled. ALB authentication requires HTTPS for security."
+  }
+}
+
+variable "cognito_logout_url" {
+  description = "Custom Cognito logout URL (overrides default constructed URL)"
+  type        = string
+  default     = null
+}
