@@ -5,3 +5,5 @@ __pycache__
 data
 .env
 .DS_Store
+iac/kb-arn.txt
+iac/kb-id.txt
