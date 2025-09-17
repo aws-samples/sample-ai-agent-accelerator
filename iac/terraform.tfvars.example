@@ -1,0 +1,31 @@
+name = "agent"
+tags = {
+  app = "agent"
+}
+
+# Restrict web interface access to specific IP addresses
+# Replace with your actual IP addresses/CIDR blocks
+allowed_ips = [
+  "203.0.113.0/24",    # Example office network
+  "198.51.100.5/32",   # Example specific IP
+  "192.0.2.0/24"       # Example home network
+]
+
+# These will be populated after agent deployment
+# agentcore_runtime_arn = "arn:aws:bedrock-agentcore:<region>:<account-id>:runtime/<agent-suffix>"
+# agentcore_memory_id = "agent-suffix"
+
+# Optional: ACM certificate ARN for HTTPS support
+acm_certificate_arn = "arn:aws:acm:<region>:<account-id>:certificate/<certificate-id>"
+
+# Enable ALB+Cognito authentication (default: false)
+# Uncomment to enable authentication for production deployments
+# enable_authentication = true
+
+# Custom Cognito logout URL (for custom domains)
+# If not specified, will use default: https://<domain>.auth.<region>.amazoncognito.com/logout?client_id=<client_id>&logout_uri=
+# cognito_logout_url = "https://auth.yourdomain.com/logout?client_id=your-client-id&logout_uri="
+
+# ALB Logging Configuration
+alb_access_logs_enabled = true
+alb_connection_logs_enabled = true

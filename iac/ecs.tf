@@ -63,6 +63,14 @@ module "ecs_service" {
           "name" : "MEMORY_ID",
           "value" : var.agentcore_memory_id
         },
+        {
+          "name" : "ENABLE_AUTHENTICATION",
+          "value" : tostring(var.enable_authentication)
+        },
+        {
+          "name" : "COGNITO_LOGOUT_URL",
+          "value" : var.enable_authentication ? coalesce(var.cognito_logout_url, "https://${aws_cognito_user_pool_domain.main[0].domain}.auth.${data.aws_region.current.name}.amazoncognito.com/logout?client_id=${aws_cognito_user_pool_client.main[0].id}&logout_uri=${var.acm_certificate_arn != "" ? "https" : "http"}://${module.alb.dns_name}") : ""
+        },
       ]
 
       readonly_root_filesystem = false
@@ -157,33 +165,112 @@ module "alb" {
   vpc_id  = module.vpc.vpc_id
   subnets = module.vpc.public_subnets
 
-  security_group_ingress_rules = {
-    all_http = {
-      from_port   = 80
-      to_port     = 80
-      ip_protocol = "tcp"
-      description = "HTTP web traffic"
-      cidr_ipv4   = "0.0.0.0/0"
-    }
-  }
+  access_logs = var.alb_access_logs_enabled ? {
+    bucket  = aws_s3_bucket.alb_logs.id
+    enabled = true
+  } : {}
 
-  security_group_egress_rules = { for cidr_block in module.vpc.private_subnets_cidr_blocks :
-    (cidr_block) => {
-      ip_protocol = "-1"
-      cidr_ipv4   = cidr_block
-    }
-  }
+  connection_logs = var.alb_connection_logs_enabled ? {
+    bucket  = aws_s3_bucket.alb_logs.id
+    enabled = true
+  } : {}
 
-  listeners = {
-    http = {
-      port     = "80"
-      protocol = "HTTP"
+  security_group_ingress_rules = merge(
+    { for idx, ip in var.allowed_ips :
+      "http_${idx}" => merge(
+        {
+          from_port   = 80
+          to_port     = 80
+          ip_protocol = "tcp"
+          description = "HTTP web traffic from ${ip}"
+        },
+        strcontains(ip, ":") ? { cidr_ipv6 = ip } : { cidr_ipv4 = ip }
+      )
+    },
+    var.acm_certificate_arn != "" ? { for idx, ip in var.allowed_ips :
+      "https_${idx}" => merge(
+        {
+          from_port   = 443
+          to_port     = 443
+          ip_protocol = "tcp"
+          description = "HTTPS web traffic from ${ip}"
+        },
+        strcontains(ip, ":") ? { cidr_ipv6 = ip } : { cidr_ipv4 = ip }
+      )
+    } : {}
+  )
 
-      forward = {
-        target_group_key = "ecs-task"
+  security_group_egress_rules = merge(
+    { for cidr_block in module.vpc.private_subnets_cidr_blocks :
+      (cidr_block) => {
+        ip_protocol = "-1"
+        cidr_ipv4   = cidr_block
+      }
+    },
+    {
+      https_outbound = {
+        from_port   = 443
+        to_port     = 443
+        ip_protocol = "tcp"
+        cidr_ipv4   = "0.0.0.0/0"
+        description = "HTTPS outbound for Cognito authentication"
       }
     }
-  }
+  )
+
+  listeners = merge(
+    {
+      http = merge(
+        {
+          port     = "80"
+          protocol = "HTTP"
+        },
+        var.acm_certificate_arn != "" ? {
+          redirect = {
+            port        = "443"
+            protocol    = "HTTPS"
+            status_code = "HTTP_301"
+          }
+        } : var.enable_authentication ? {
+          authenticate_cognito = {
+            user_pool_arn       = aws_cognito_user_pool.main[0].arn
+            user_pool_client_id = aws_cognito_user_pool_client.main[0].id
+            user_pool_domain    = aws_cognito_user_pool_domain.main[0].domain
+          }
+          forward = {
+            target_group_key = "ecs-task"
+          }
+        } : {
+          forward = {
+            target_group_key = "ecs-task"
+          }
+        }
+      )
+    },
+    var.acm_certificate_arn != "" ? {
+      https = merge(
+        {
+          port            = "443"
+          protocol        = "HTTPS"
+          certificate_arn = var.acm_certificate_arn
+        },
+        var.enable_authentication ? {
+          authenticate_cognito = {
+            user_pool_arn       = aws_cognito_user_pool.main[0].arn
+            user_pool_client_id = aws_cognito_user_pool_client.main[0].id
+            user_pool_domain    = aws_cognito_user_pool_domain.main[0].domain
+          }
+          forward = {
+            target_group_key = "ecs-task"
+          }
+        } : {
+          forward = {
+            target_group_key = "ecs-task"
+          }
+        }
+      )
+    } : {}
+  )
 
   target_groups = {
 

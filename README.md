@@ -21,19 +21,21 @@ This implementation is an evolution of the [AI Chat Accelerator implementation](
 - Implements Agentic RAG
 - Easily add additional tools for the agent to use
 - See conversation history and select to see past converations
+- Optional ALB+Cognito authentication (disabled by default, can be enabled for production)
 - Built-in auto scaling architecture (see docs below)
 - End to end observability with AgentCore GenAI observability and OpenTelemetry (OTEL)
 
 ## Usage
 
-Follow the 6 step process below for deploying this solution into your AWS account.
+Follow the 7 step process below for deploying this solution into your AWS account.
 
 1. Setup/Install prerequisites
 2. Deploy cloud infrastructure
 3. Deploy application code
 4. Upload your documents to the generated S3 bucket
 5. Trigger the Bedrock Knowledge Base sync
-6. Start chatting with your documents in the app
+6. Create a Cognito user for authentication (if authentication is enabled)
+7. Start chatting with your documents in the app
 
 ### 1. Setup/Install prerequisites
 
@@ -106,6 +108,43 @@ tags = {
 }
 EOF
 ```
+
+#### Optional: Restrict web interface access by IP
+
+By default, the web interface is accessible from any IP address. To restrict access to specific IP addresses or CIDR blocks, add the `allowed_ips` parameter to your `terraform.tfvars`:
+
+```sh
+cat << EOF >> terraform.tfvars
+allowed_ips = [
+  "203.0.113.0/24",    # Your office network
+  "198.51.100.5/32",   # Your home IP
+  "192.0.2.0/24"       # Additional network
+]
+EOF
+```
+
+Replace the example IP addresses with your actual IP addresses or CIDR blocks. You can find your current IP address by running `curl ifconfig.me`.
+
+#### Optional: Enable authentication
+
+By default, authentication is disabled for easier development and testing. To enable ALB+Cognito authentication (recommended for production), add the `enable_authentication` parameter to your `terraform.tfvars`:
+
+```sh
+cat << EOF >> terraform.tfvars
+enable_authentication = true
+EOF
+```
+
+**Important Security Requirement**: ALB authentication with Cognito requires HTTPS. You must provide an SSL/TLS certificate via the `acm_certificate_arn` parameter when enabling authentication. This ensures that sensitive authentication information (credentials, tokens) is encrypted during transit.
+
+```sh
+cat << EOF >> terraform.tfvars
+enable_authentication = true
+acm_certificate_arn = "arn:aws:acm:region:account:certificate/certificate-id"
+EOF
+```
+
+When authentication is enabled, users must log in via Cognito to access the application.
 
 Deploy using terraform.
 
@@ -201,11 +240,55 @@ make sync
 
 Note that this script calls the `bedrock-agent start-ingestion-job` API. This job will need to successfully complete before the agent will be able to answer questions about your documents.
 
-### 6. Start chatting with your documents in the app
+### 6. Create a Cognito user for authentication (if authentication is enabled)
+
+If you have authentication enabled, create a Cognito user:
+
+```sh
+cd iac
+./create-user.sh
+```
+
+Follow the prompts to create a user with your email address and a temporary password.
+
+### 7. Start chatting with your documents in the app
 
 ```sh
 open $(terraform output -raw endpoint)
 ```
+
+If authentication is enabled, you'll be redirected to the Cognito login page. Use the email and temporary password you created in step 6. You'll be prompted to set a new password on first login.
+
+If authentication is disabled, you can access the application directly without any login.
+
+## Security
+
+### SSL/TLS and Authentication Requirements
+
+For production deployments, SSL/TLS encryption is strongly recommended. When enabling Cognito authentication, SSL/TLS is **required** - you cannot enable authentication without providing an ACM certificate.
+
+- **SSL without authentication**: Supported - provides encrypted communication
+- **Authentication without SSL**: **Not supported** - ALB authentication requires HTTPS for security
+- **Both SSL and authentication**: Recommended for production
+
+To configure SSL/TLS, provide an ACM certificate ARN:
+```hcl
+acm_certificate_arn = "arn:aws:acm:region:account:certificate/certificate-id"
+```
+
+### IP Access Restrictions
+
+The web interface can be restricted to specific IP addresses by setting the `allowed_ips` variable in your `terraform.tfvars` file. This creates security group rules that only allow HTTP traffic from the specified IP addresses or CIDR blocks.
+
+Example:
+```hcl
+allowed_ips = [
+  "203.0.113.0/24",    # Office network
+  "198.51.100.5/32",   # Specific IP address
+]
+```
+
+If not specified, the default value allows access from anywhere (`0.0.0.0/0`).
 
 ## Scaling
 

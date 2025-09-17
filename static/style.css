@@ -64,6 +64,38 @@ body {
 	transition: transform 0.2s ease;
 }
 
+/* User Info Styles */
+.user-info {
+	align-items: center;
+	gap: 1rem;
+}
+
+.user-email {
+	color: rgba(255, 255, 255, 0.9);
+	font-size: 0.9rem;
+	font-weight: 500;
+	background: rgba(255, 255, 255, 0.1);
+	padding: 0.5rem 1rem;
+	border-radius: 20px;
+	backdrop-filter: blur(10px);
+	border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.user-info .btn-outline-light {
+	border-color: rgba(255, 255, 255, 0.3);
+	color: white;
+	background: rgba(255, 255, 255, 0.1);
+	backdrop-filter: blur(10px);
+	transition: all 0.3s ease;
+}
+
+.user-info .btn-outline-light:hover {
+	background: rgba(255, 255, 255, 0.2);
+	border-color: rgba(255, 255, 255, 0.5);
+	color: white;
+	transform: translateY(-1px);
+}
+
 /* Main Container */
 .main-container {
 	background: var(--dark-bg);

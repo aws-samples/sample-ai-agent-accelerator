@@ -52,3 +52,23 @@ output "s3_bucket_name" {
   description = "The name of the s3 bucket that was created"
   value       = aws_s3_bucket.main.bucket
 }
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = var.enable_authentication ? aws_cognito_user_pool.main[0].id : null
+}
+
+output "cognito_user_pool_client_id" {
+  description = "Cognito User Pool Client ID"
+  value       = var.enable_authentication ? aws_cognito_user_pool_client.main[0].id : null
+}
+
+output "cognito_domain" {
+  description = "Cognito Domain for authentication"
+  value       = var.enable_authentication ? "https://${aws_cognito_user_pool_domain.main[0].domain}.auth.${data.aws_region.current.name}.amazoncognito.com" : null
+}
+
+output "alb_logs_bucket_name" {
+  description = "The name of the S3 bucket for ALB access logs"
+  value       = aws_s3_bucket.alb_logs.bucket
+}

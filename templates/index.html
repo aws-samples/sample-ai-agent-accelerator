@@ -79,10 +79,18 @@
     <!-- Header -->
     <header class="app-header">
       <div class="container">
-        <div class="row">
+        <div class="row align-items-center">
           <div class="col">
             <a href="/" class="app-title"> ✨ AI Agent Accelerator</a>
           </div>
+          {% if auth_enabled and user_email %}
+          <div class="col-auto">
+            <div class="user-info d-flex align-items-center">
+              <span class="user-email me-3">👤 {{ user_email }}</span>
+              <a href="/logout" class="btn btn-outline-light btn-sm">Logout</a>
+            </div>
+          </div>
+          {% endif %}
         </div>
       </div>
     </header>
