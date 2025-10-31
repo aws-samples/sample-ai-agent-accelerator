@@ -16,24 +16,24 @@ This implementation is an evolution of the [AI Chat Accelerator implementation](
 
 ## Key Features
 
-- Deployable in under 15 minutes (instructions below)
-- Ask questions and get answers
-- Implements Agentic RAG
+- Rich chatbot GUI running on ECS Fargate
+- AI Agent leverages Bedrock AgentCore services
+- Implements Agentic RAG with Bedrock Knowledge Bases and S3 Vectors
 - Easily add additional tools for the agent to use
 - See conversation history and select to see past converations
 - Built-in auto scaling architecture (see docs below)
 - End to end observability with AgentCore GenAI observability and OpenTelemetry (OTEL)
+- Deployable in under 15 minutes (instructions below)
 
 ## Usage
 
-Follow the 6 step process below for deploying this solution into your AWS account.
+Follow the 5 step process below for deploying this solution into your AWS account.
 
 1. Setup/Install prerequisites
-2. Deploy cloud infrastructure
-3. Deploy application code
-4. Upload your documents to the generated S3 bucket
-5. Trigger the Bedrock Knowledge Base sync
-6. Start chatting with your documents in the app
+2. Deploy stack to AWS using Terraform
+3. Upload your documents to the generated S3 bucket
+4. Trigger the Bedrock Knowledge Base sync
+5. Chat with the AI Agent to access the knowledge in your documents.
 
 ### 1. Setup/Install prerequisites
 
@@ -42,35 +42,6 @@ Follow the 6 step process below for deploying this solution into your AWS accoun
 - [Terraform](https://developer.hashicorp.com/terraform/tutorials/aws-get-started/install-cli)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - [jq CLI](https://jqlang.github.io/jq/download/)
-- [Python 3](https://www.python.org/downloads/)
-- [boto3](https://boto3.amazonaws.com/) (latest)
-
-
-#### Python environment
-
-Python 3 is required to be setup on your machine to deploy to AgentCore Runtime. It's also required if you want to make code changes. To run the [./agent/deploy.py](./agent/deploy.py) script, the only dependency is the `boto3` package.
-
-To do development (i.e. make code changes), `python 3.10+` is required (the containers use python `3.13`). Once you have python installed, you can run the convenient [make commands](./Makefile) to setup a virtual environment and install the required packages.
-
-```sh
-make init
-make install
-```
-
-If you have [direnv](https://direnv.net/) installed, it will automatically activate the virtual environment when you change into the directory (after you allow it using `direnv allow .`).
-
-If you don't want to use these commands, you can set up python by running the following in the project directory:
-
-```sh
-# create/activate python virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# install python dependencies
-pip install -r piplock.txt
-```
-
-Note that the [agent](./agent/) directory has a separate python virtual environment for agent development, so you can run the above commands there as well if you're modifying agent code.
 
 
 ### 2. Deploy cloud infrastructure
@@ -102,89 +73,20 @@ cd iac
 cat << EOF > terraform.tfvars
 name = "${APP_NAME}"
 tags = {
-  app = "${APP_NAME}"
+  app      = "${APP_NAME}"
+  template = "https://github.com/aws-samples/sample-ai-agent-accelerator"
 }
 EOF
 ```
 
-Deploy using terraform.
+Deploy using Terraform. Note that Terraform will build both the web app and agent container images and deploy them to AWS.
 
 ```sh
 terraform init -backend-config="bucket=${BUCKET}" -backend-config="key=${APP_NAME}.tfstate"
 terraform apply
 ```
 
-### 3. Deploy application code
-
-Now that the infrastructure has been deployed, you can build the agent and app containers and deploy them on top of the infrastructure.
-
-#### Deploy the Agent to the AgentCore Runtime
-
-*Important - if you're running this on an `amd64` machine, you'll to run the following commands since AgentCore requires building of `arm64` images.
-
-```sh
-# Create a new builder instance and bootstrap it
-docker buildx create --name multiarch --driver docker-container --use
-docker buildx inspect --bootstrap
-```
-
-Run the agent deploy script which requires python and boto3 (note that support for AgentCore has not yet been added to IaC tools).
-
-```sh
-export KNOWLEDGE_BASE_ID=$(terraform output -raw bedrock_knowledge_base_id)
-cd ../agent
-make deploy app=${APP_NAME} kb=${KNOWLEDGE_BASE_ID}
-```
-
-You should see output like this:
-```
-...
-export AGENTCORE_RUNTIME_ARN="arn:aws:bedrock-agentcore:<region>:<account>:runtime/agent-<suffix>"
-export MEMORY_ID="agent-<suffix>"
-```
-
-Our ECS web frontend needs to be able to call our agent, so we'll need to set a terraform input parameter and then re-apply our terraform (note that we only have to do this step due to lack of IaC support).
-
-Copy/paste the `export` commands from the previous output into your terminal.
-
-```sh
-export AGENTCORE_RUNTIME_ARN="arn:aws:bedrock-agentcore:<region>:<account>:runtime/agent-<suffix>"
-export MEMORY_ID="agent-<suffix>"
-```
-
-Now add these variables to our terraform input.
-
-```sh
-cd ../iac
-cat << EOF >> terraform.tfvars
-agentcore_runtime_arn = "${AGENTCORE_RUNTIME_ARN}"
-agentcore_memory_id = "${MEMORY_ID}"
-EOF
-```
-
-Then re-apply
-```sh
-terraform apply
-```
-
-#### Deploy the Frontend web application
-
-Now we're ready to deploy the web frontend.
-
-The first time you deploy you can run the following to build the base image and app image together.
-
-```sh
-cd ..
-make baseimage && make deploy app=${APP_NAME}
-```
-
-After the intitial deployment, you can iterate on code changes faster by only rebuilding the code layers and re-deploying.
-
-```sh
-make deploy app=${APP_NAME}
-```
-
-### 4. Upload your documents to the generated S3 bucket
+### 3. Upload your documents to the generated S3 bucket
 
 ```sh
 cd iac
@@ -192,7 +94,7 @@ export DOCS_BUCKET=$(terraform output -raw s3_bucket_name)
 aws s3 cp /path/to/docs/ s3://${DOCS_BUCKET}/ --recursive
 ```
 
-### 5. Call the Bedrock Knowledge Base Sync API
+### 4. Call the Bedrock Knowledge Base Sync API
 
 ```sh
 cd iac
@@ -201,7 +103,7 @@ make sync
 
 Note that this script calls the `bedrock-agent start-ingestion-job` API. This job will need to successfully complete before the agent will be able to answer questions about your documents.
 
-### 6. Start chatting with your documents in the app
+### 5. Start chatting with your documents in the app
 
 ```sh
 open $(terraform output -raw endpoint)
@@ -231,7 +133,7 @@ Bedrock cross-region model inference is recommended for increasing throughput us
 
 This accelerator ships with OpenTelemetry auto instrumented code for flask, boto3, and AgentCore via the [aws-opentelemetry-distro](https://pypi.org/project/opentelemetry-distro/) library. It will create traces that are available in CloudWatch GenAI Observability. These traces can be useful for understanding how the AI agent is running in production. You can see how an HTTP request is broken down in terms of how much time is spent on various external calls all the way through Bedrock AgentCore Runtime through the Strands framework, to LLM calls.
 
-![Tracing](./tracing.jpg)
+![Tracing](./tracing.png)
 
 ### Disabling tracing
 

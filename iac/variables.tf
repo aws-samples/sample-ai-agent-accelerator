@@ -32,21 +32,3 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
-
-variable "image" {
-  description = "container image to initially bootstrap. future images can be deployed using a separate mechanism"
-  type        = string
-  default     = "public.ecr.aws/jritsema/defaultbackend"
-}
-
-variable "agentcore_runtime_arn" {
-  description = "ARN of the AgentCore Runtime we want to use"
-  type        = string
-  default     = ""
-}
-
-variable "agentcore_memory_id" {
-  description = "AgentCore memory id"
-  type        = string
-  default     = ""
-}

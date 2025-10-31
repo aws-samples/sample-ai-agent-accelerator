@@ -1,20 +1,14 @@
 module "ecs_cluster" {
   source  = "terraform-aws-modules/ecs/aws//modules/cluster"
-  version = "~> 5.6"
+  version = "~> 6.0"
 
-  cluster_name = var.name
-
-  fargate_capacity_providers = {
-    FARGATE      = {}
-    FARGATE_SPOT = {}
-  }
-
+  name = var.name
   tags = var.tags
 }
 
 module "ecs_service" {
   source  = "terraform-aws-modules/ecs/aws//modules/service"
-  version = "~> 5.6"
+  version = "~> 6.0"
 
   name        = var.name
   cluster_arn = module.ecs_cluster.arn
@@ -22,9 +16,12 @@ module "ecs_service" {
   cpu    = 1024
   memory = 2048
 
-  # supports external task def deployments
-  # by ignoring changes to task definition and desired count
-  ignore_task_definition_changes = true
+  runtime_platform = {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64"
+  }
+
+  ignore_task_definition_changes = false
   desired_count                  = 1
 
   # Task Definition
@@ -33,10 +30,11 @@ module "ecs_service" {
   container_definitions = {
     (var.container_name) = {
 
-      image = var.image
+      image = docker_registry_image.web.name
 
-      port_mappings = [
+      portMappings = [
         {
+          name          = "http",
           protocol      = "tcp",
           containerPort = var.container_port
         }
@@ -57,15 +55,15 @@ module "ecs_service" {
         },
         {
           "name" : "AGENT_RUNTIME",
-          "value" : var.agentcore_runtime_arn
+          "value" : aws_bedrockagentcore_agent_runtime.main.agent_runtime_arn
         },
         {
           "name" : "MEMORY_ID",
-          "value" : var.agentcore_memory_id
+          "value" : aws_bedrockagentcore_memory.main.id
         },
       ]
 
-      readonly_root_filesystem = false
+      readonlyRootFilesystem = false
 
       dependsOn = [
         {
@@ -95,44 +93,30 @@ module "ecs_service" {
     }
   }
 
-  subnet_ids = module.vpc.private_subnets
-
-  security_group_rules = {
-    ingress_alb_service = {
-      type                     = "ingress"
-      from_port                = var.container_port
-      to_port                  = var.container_port
-      protocol                 = "tcp"
-      description              = "Service port"
-      source_security_group_id = module.alb.security_group_id
-    }
-    egress_all = {
-      type        = "egress"
-      from_port   = 0
-      to_port     = 0
-      protocol    = "-1"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
-  }
+  subnet_ids         = module.vpc.private_subnets
+  security_group_ids = [aws_security_group.ecs_service.id]
 
   tasks_iam_role_name        = "${var.name}-tasks"
   tasks_iam_role_description = "role for ${var.name}"
 
   tasks_iam_role_statements = [
     {
-      actions   = ["bedrock-agentcore:InvokeAgentRuntime"]
-      resources = ["arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:runtime/*"]
+      actions = [
+        "bedrock-agentcore:InvokeAgentRuntime",
+        "bedrock-agentcore:InvokeAgentRuntimeForUser"
+      ]
+      resources = ["arn:aws:bedrock-agentcore:${local.region_account}:runtime/*"]
     },
     {
       actions   = ["bedrock-agentcore:GetWorkloadAccessTokenForUserId"]
-      resources = ["arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:workload-identity-directory/default/workload-identity/*"]
+      resources = ["arn:aws:bedrock-agentcore:${local.region_account}:workload-identity-directory/default/workload-identity/*"]
     },
     {
       actions = [
         "bedrock-agentcore:ListEvents",
         "bedrock-agentcore:ListSessions",
       ]
-      resources = ["arn:aws:bedrock-agentcore:${local.region}:${local.account_id}:memory/*"]
+      resources = ["arn:aws:bedrock-agentcore:${local.region_account}:memory/*"]
     },
     {
       actions = [
@@ -142,6 +126,28 @@ module "ecs_service" {
       resources = ["*"]
     },
   ]
+
+  tags = var.tags
+}
+
+resource "aws_security_group" "ecs_service" {
+  name_prefix = "${var.name}-ecs-service"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port       = var.container_port
+    to_port         = var.container_port
+    protocol        = "tcp"
+    description     = "Service port"
+    security_groups = [module.alb.security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   tags = var.tags
 }
