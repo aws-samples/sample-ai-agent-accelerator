@@ -1,0 +1,23 @@
+FROM public.ecr.aws/docker/library/python:3.13-slim
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# python deps
+COPY ./piplock.txt .
+RUN pip3 install -r piplock.txt
+
+WORKDIR /app
+RUN mkdir -p /app/tmp && chmod 777 /app/tmp
+ENV TMPDIR=/app/tmp
+ENV FLASK_ENV=production
+ENV FLASK_DEBUG=0
+COPY . .
+EXPOSE 8080
+CMD ["gunicorn", \
+    "--bind", "0.0.0.0:8080", \
+    "--workers", "1", \
+    "--threads", "4", \
+    "--worker-class", "gthread", \
+    "main:app"]
