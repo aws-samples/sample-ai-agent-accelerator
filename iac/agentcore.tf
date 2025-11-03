@@ -7,6 +7,28 @@ resource "aws_bedrockagentcore_memory" "main" {
   tags = var.tags
 }
 
+# Memory Strategies
+resource "aws_bedrockagentcore_memory_strategy" "session_summarizer" {
+  memory_id  = aws_bedrockagentcore_memory.main.id
+  name       = "SessionSummarizer"
+  type       = "SUMMARIZATION"
+  namespaces = ["/summaries/{actorId}/{sessionId}"]
+}
+
+resource "aws_bedrockagentcore_memory_strategy" "preference_learner" {
+  memory_id  = aws_bedrockagentcore_memory.main.id
+  name       = "PreferenceLearner"
+  type       = "USER_PREFERENCE"
+  namespaces = ["/preferences/{actorId}"]
+}
+
+resource "aws_bedrockagentcore_memory_strategy" "fact_extractor" {
+  memory_id  = aws_bedrockagentcore_memory.main.id
+  name       = "FactExtractor"
+  type       = "SEMANTIC"
+  namespaces = ["/facts/{actorId}"]
+}
+
 # AgentCore Agent Runtime
 resource "aws_bedrockagentcore_agent_runtime" "main" {
   agent_runtime_name = var.name
@@ -175,7 +197,8 @@ resource "aws_iam_role_policy" "agentcore_runtime" {
           "bedrock-agentcore:CreateEvent",
           "bedrock-agentcore:ListMemories",
           "bedrock-agentcore:ListEvents",
-          "bedrock-agentcore:DeleteMemory"
+          "bedrock-agentcore:DeleteMemory",
+          "bedrock-agentcore:RetrieveMemoryRecords",
         ]
         Resource = aws_bedrockagentcore_memory.main.arn,
       },
