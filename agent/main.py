@@ -109,7 +109,6 @@ async def invoke_agent(request: Request):
         logging.info("agent initializing")
         try:
             strands_agent = Agent(
-                # model="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
                 model="us.anthropic.claude-3-5-haiku-20241022-v1:0",
                 system_prompt=system_prompt,
                 tools=[retrieve],

@@ -1,1 +1,0 @@
-arn:aws:bedrock:us-east-1:636439685787:knowledge-base/8WTTE1UOJA

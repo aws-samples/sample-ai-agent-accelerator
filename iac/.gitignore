@@ -6,3 +6,6 @@ terraform.tfstate.backup
 terraform.tfvars
 .terraform.lock.hcl
 .terraform.tfstate.lock.info
+kb_arn.txt
+kb_id.txt
+ds_id.txt
