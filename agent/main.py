@@ -8,7 +8,7 @@ from strands import Agent
 from strands_tools import retrieve
 from botocore.config import Config
 from bedrock_agentcore.memory import MemoryClient
-from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig
+from bedrock_agentcore.memory.integrations.strands.config import AgentCoreMemoryConfig, RetrievalConfig
 from bedrock_agentcore.memory.integrations.strands.session_manager import AgentCoreMemorySessionManager
 
 
@@ -99,7 +99,17 @@ async def invoke_agent(request: Request):
         config = AgentCoreMemoryConfig(
             memory_id=memory_id,
             session_id=session_id,
-            actor_id=user_id
+            actor_id=user_id,
+            retrieval_config={
+                "/preferences/{actorId}": RetrievalConfig(
+                    top_k=5,
+                    relevance_score=0.7
+                ),
+                "/facts/{actorId}": RetrievalConfig(
+                    top_k=10,
+                    relevance_score=0.3
+                ),
+            },
         )
         session_manager = AgentCoreMemorySessionManager(
             boto_client_config=retry_config,
