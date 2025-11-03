@@ -1,26 +1,25 @@
 locals {
   embedding_model_arn = "arn:aws:bedrock:${local.region}::foundation-model/amazon.titan-embed-text-v2:0"
+  knowledge_base_id   = data.external.kb_info.result.kb_id
+  knowledge_base_arn  = data.external.kb_info.result.kb_arn
+  data_source_id      = data.external.ds_info.result.ds_id
 }
 
-# Create knowledge base using local-exec with output capture
-# WORKAROUND: Using null_resource with AWS CLI for S3 vectors knowledge base creation
+# WORKAROUND: Using terraform_data with AWS CLI for S3 vectors knowledge base creation
 #
 # Amazon S3 Vectors is currently in preview and does not have Terraform support.
 # The native aws_bedrockagent_knowledge_base resource only supports traditional vector stores:
-# - OpenSearch Serverless
-# - Pinecone
-# - Redis Enterprise Cloud
-# - Amazon RDS
+# - OpenSearch Serverless, Pinecone, Redis Enterprise Cloud, Amazon RDS
 #
 # S3 vectors support is tracked in GitHub issues:
 # - https://github.com/hashicorp/terraform-provider-aws/issues/43409
 # - https://github.com/hashicorp/terraform-provider-aws/issues/43438
 #
 # TODO: Replace with native resource when S3 vectors support is added to Terraform provider
-resource "null_resource" "bedrock_knowledge_base" {
+resource "terraform_data" "bedrock_knowledge_base" {
   depends_on = [aws_iam_role_policy.kb]
 
-  triggers = {
+  triggers_replace = {
     region          = local.region
     name            = var.name
     description     = "kb for ${var.name}"
@@ -37,7 +36,7 @@ resource "null_resource" "bedrock_knowledge_base" {
       # Create S3 vector bucket
       echo "Creating S3 vector bucket..."
       VECTOR_BUCKET_NAME="${var.name}-vectors"
-      aws s3vectors create-vector-bucket --vector-bucket-name "$VECTOR_BUCKET_NAME"
+      aws s3vectors create-vector-bucket --vector-bucket-name "$VECTOR_BUCKET_NAME" || echo "Vector bucket may already exist"
 
       # Get vector bucket ARN
       VECTOR_BUCKET_ARN=$(aws s3vectors get-vector-bucket \
@@ -54,7 +53,7 @@ resource "null_resource" "bedrock_knowledge_base" {
         --data-type "float32" \
         --dimension 1024 \
         --distance-metric "cosine" \
-        --metadata-configuration '{"nonFilterableMetadataKeys":["AMAZON_BEDROCK_TEXT","AMAZON_BEDROCK_METADATA"]}'
+        --metadata-configuration '{"nonFilterableMetadataKeys":["AMAZON_BEDROCK_TEXT","AMAZON_BEDROCK_METADATA"]}' || echo "Index may already exist"
 
       # Get vector index ARN
       S3_INDEX_ARN=$(aws s3vectors get-index \
@@ -65,7 +64,8 @@ resource "null_resource" "bedrock_knowledge_base" {
 
       # Create knowledge base with retry
       echo "Creating Bedrock knowledge base..."
-      for i in {1..3}; do
+      i=1
+      while [ $i -le 3 ]; do
         if KB_JSON=$(aws bedrock-agent create-knowledge-base \
           --name "${var.name}" \
           --description "kb for ${var.name}" \
@@ -82,20 +82,18 @@ resource "null_resource" "bedrock_knowledge_base" {
               "indexArn": "'$S3_INDEX_ARN'",
               "vectorBucketArn": "'$VECTOR_BUCKET_ARN'"
             }
-          }' 2>/dev/null); then
+          }'); then
 
-          # Extract and save KB info
-          echo "$KB_JSON" | jq -r '.knowledgeBase.knowledgeBaseId' > kb_id.txt
-          echo "$KB_JSON" | jq -r '.knowledgeBase.knowledgeBaseArn' > kb_arn.txt
           echo "Knowledge base created successfully"
           break
-        elif [[ $i -eq 3 ]]; then
+        elif [ $i -eq 3 ]; then
           echo "Failed to create knowledge base after 3 attempts"
           exit 1
         else
           echo "Attempt $i failed, retrying in 15 seconds..."
           sleep 15
         fi
+        i=$((i + 1))
       done
     EOT
   }
@@ -105,42 +103,55 @@ resource "null_resource" "bedrock_knowledge_base" {
     command = <<-EOT
       set -e
 
-      # Read KB ID if file exists
-      if [[ -f kb_id.txt ]]; then
-        KB_ID=$(cat kb_id.txt)
+      # Always try to delete S3 vector resources first (they're predictably named)
+      VECTOR_BUCKET_NAME="${self.triggers_replace.name}-vectors"
+      S3_INDEX_NAME="${self.triggers_replace.name}-index"
 
-        # Delete knowledge base
-        aws bedrock-agent delete-knowledge-base --knowledge-base-id "$KB_ID" || true
+      echo "Cleaning up S3 vectors resources..."
+      aws s3vectors delete-index \
+        --vector-bucket-name "$VECTOR_BUCKET_NAME" \
+        --index-name "$S3_INDEX_NAME" || echo "Index may not exist"
 
-        # Delete S3 vector resources
-        VECTOR_BUCKET_NAME="${self.triggers.name}-vectors"
-        S3_INDEX_NAME="${self.triggers.name}-index"
+      aws s3vectors delete-vector-bucket \
+        --vector-bucket-name "$VECTOR_BUCKET_NAME" || echo "Vector bucket may not exist"
 
-        aws s3vectors delete-index \
-          --vector-bucket-name "$VECTOR_BUCKET_NAME" \
-          --index-name "$S3_INDEX_NAME" || true
+      # Try to get KB ID from AWS and delete if found
+      KB_ID=$(aws bedrock-agent list-knowledge-bases \
+        --query "knowledgeBaseSummaries[?name=='${self.triggers_replace.name}'].knowledgeBaseId" \
+        --output text 2>/dev/null || echo "")
 
-        aws s3vectors delete-vector-bucket \
-          --vector-bucket-name "$VECTOR_BUCKET_NAME" || true
-
-        # Clean up files
-        rm -f kb_id.txt kb_arn.txt
+      if [ -n "$KB_ID" ] && [ "$KB_ID" != "None" ]; then
+        echo "Deleting knowledge base: $KB_ID"
+        aws bedrock-agent delete-knowledge-base --knowledge-base-id "$KB_ID" || echo "KB may not exist"
+      else
+        echo "No knowledge base found to delete"
       fi
     EOT
   }
 }
 
-# Read KB info from files created by provisioner
-data "local_file" "kb_id" {
-  depends_on = [null_resource.bedrock_knowledge_base]
-  filename   = "${path.module}/kb_id.txt"
+# Extract KB info using external data source
+data "external" "kb_info" {
+  depends_on = [terraform_data.bedrock_knowledge_base]
+
+  program = ["bash", "-c", <<-EOT
+    KB_ID=$(aws bedrock-agent list-knowledge-bases \
+      --query "knowledgeBaseSummaries[?name=='${var.name}'].knowledgeBaseId" \
+      --output text)
+    KB_ARN=$(aws bedrock-agent list-knowledge-bases \
+      --query "knowledgeBaseSummaries[?name=='${var.name}'].knowledgeBaseArn" \
+      --output text)
+
+    if [ -n "$KB_ID" ] && [ "$KB_ID" != "None" ]; then
+      echo "{\"kb_id\":\"$KB_ID\",\"kb_arn\":\"$KB_ARN\"}"
+    else
+      echo "{\"kb_id\":\"\",\"kb_arn\":\"\"}"
+    fi
+  EOT
+  ]
 }
 
-locals {
-  knowledge_base_id = trimspace(try(data.local_file.kb_id.content, ""))
-}
-
-# WORKAROUND: Using null_resource with AWS CLI instead of aws_bedrockagent_data_source
+# WORKAROUND: Using terraform_data with AWS CLI instead of aws_bedrockagent_data_source
 #
 # The native Terraform resource aws_bedrockagent_data_source fails with:
 # "AccessDeniedException: User is not authorized to perform: bedrock:CreateDataSource"
@@ -150,22 +161,12 @@ locals {
 # incorrectly handles permissions for Bedrock Agent data source creation.
 # The AWS CLI works correctly with the same credentials.
 #
-# TODO: Replace with native resource when provider bug is fixed:
-# resource "aws_bedrockagent_data_source" "main" {
-#   knowledge_base_id = local.knowledge_base_id
-#   name              = aws_s3_bucket.main.bucket
-#   data_source_configuration {
-#     type = "S3"
-#     s3_configuration {
-#       bucket_arn = aws_s3_bucket.main.arn
-#     }
-#   }
-#   data_deletion_policy = "RETAIN"
-#   depends_on = [null_resource.bedrock_knowledge_base]
-# }
-resource "null_resource" "bedrock_data_source" {
-  triggers = {
-    knowledge_base_id = trimspace(local.knowledge_base_id)
+# TODO: Replace with native resource when provider bug is fixed
+resource "terraform_data" "bedrock_data_source" {
+  depends_on = [terraform_data.bedrock_knowledge_base]
+
+  triggers_replace = {
+    knowledge_base_id = local.knowledge_base_id
     bucket_arn        = aws_s3_bucket.main.arn
     bucket_name       = aws_s3_bucket.main.bucket
   }
@@ -174,22 +175,32 @@ resource "null_resource" "bedrock_data_source" {
     command = <<-EOT
       set -e
 
-      # Create data source
+      # Wait for KB to be ready and create data source with retry
       echo "Creating Bedrock knowledge base data source..."
-      DS_JSON=$(aws bedrock-agent create-data-source \
-        --knowledge-base-id "${trimspace(self.triggers.knowledge_base_id)}" \
-        --name "${self.triggers.bucket_name}" \
-        --data-source-configuration '{
-          "type": "S3",
-          "s3Configuration": {
-            "bucketArn": "${self.triggers.bucket_arn}"
-          }
-        }' \
-        --data-deletion-policy "RETAIN" 2>/dev/null)
+      i=1
+      while [ $i -le 5 ]; do
+        if DS_JSON=$(aws bedrock-agent create-data-source \
+          --knowledge-base-id "${local.knowledge_base_id}" \
+          --name "${aws_s3_bucket.main.bucket}" \
+          --data-source-configuration '{
+            "type": "S3",
+            "s3Configuration": {
+              "bucketArn": "${aws_s3_bucket.main.arn}"
+            }
+          }' \
+          --data-deletion-policy "RETAIN" 2>/dev/null); then
 
-      # Extract and save data source ID
-      echo "$DS_JSON" | jq -r '.dataSource.dataSourceId' > ds_id.txt
-      echo "Data source created successfully"
+          echo "Data source created successfully"
+          break
+        elif [ $i -eq 5 ]; then
+          echo "Failed to create data source after 5 attempts"
+          exit 1
+        else
+          echo "Attempt $i failed, retrying in 10 seconds..."
+          sleep 10
+        fi
+        i=$((i + 1))
+      done
     EOT
   }
 
@@ -198,32 +209,39 @@ resource "null_resource" "bedrock_data_source" {
     command = <<-EOT
       set -e
 
-      # Read data source ID if file exists
-      if [[ -f ds_id.txt ]]; then
-        DS_ID=$(cat ds_id.txt)
+      # Try to get data source ID from AWS
+      DS_ID=$(aws bedrock-agent list-data-sources \
+        --knowledge-base-id "${self.triggers_replace.knowledge_base_id}" \
+        --query "dataSourceSummaries[?name=='${self.triggers_replace.bucket_name}'].dataSourceId" \
+        --output text 2>/dev/null || echo "")
 
+      if [[ -n "$DS_ID" && "$DS_ID" != "None" ]]; then
         # Delete data source
         aws bedrock-agent delete-data-source \
-          --knowledge-base-id "${trimspace(self.triggers.knowledge_base_id)}" \
+          --knowledge-base-id "${self.triggers_replace.knowledge_base_id}" \
           --data-source-id "$DS_ID" || true
-
-        # Clean up file
-        rm -f ds_id.txt
       fi
     EOT
   }
-
-  depends_on = [null_resource.bedrock_knowledge_base]
 }
 
-# Data source to read the created data source ID
-data "local_file" "ds_id" {
-  filename   = "ds_id.txt"
-  depends_on = [null_resource.bedrock_data_source]
-}
+# Extract data source info using external data source
+data "external" "ds_info" {
+  depends_on = [terraform_data.bedrock_data_source]
 
-locals {
-  data_source_id = trimspace(try(data.local_file.ds_id.content, ""))
+  program = ["bash", "-c", <<-EOT
+    DS_ID=$(aws bedrock-agent list-data-sources \
+      --knowledge-base-id "${local.knowledge_base_id}" \
+      --query "dataSourceSummaries[?name=='${aws_s3_bucket.main.bucket}'].dataSourceId" \
+      --output text)
+
+    if [ -n "$DS_ID" ] && [ "$DS_ID" != "None" ]; then
+      echo "{\"ds_id\":\"$DS_ID\"}"
+    else
+      echo "{\"ds_id\":\"\"}"
+    fi
+  EOT
+  ]
 }
 
 resource "aws_iam_role" "bedrock_kb_role" {

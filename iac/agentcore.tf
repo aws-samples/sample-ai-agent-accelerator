@@ -34,7 +34,7 @@ resource "aws_bedrockagentcore_agent_runtime" "main" {
 
   tags = var.tags
 
-  depends_on = [aws_iam_role_policy.agentcore_runtime]
+  depends_on = [aws_iam_role_policy.agentcore_runtime, terraform_data.bedrock_knowledge_base]
 }
 
 # IAM role for AgentCore runtime
